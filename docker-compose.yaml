@@ -1,0 +1,169 @@
+---
+services:
+  rabbitmq:
+    image: rabbitmq:4.0.5-management-alpine
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - app-network
+
+  database:
+    image: le0ruslan/do7-database:latest
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=users_db
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+
+  session-service:
+    image: le0ruslan/do7-session-service:latest
+    environment:
+      - POSTGRES_HOST=database
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=users_db
+    depends_on:
+      - database
+    networks:
+      - app-network
+
+  hotel-service:
+    image: le0ruslan/do7-hotel-service:latest
+    environment:
+      - POSTGRES_HOST=database
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=hotels_db
+    depends_on:
+      - database
+    networks:
+      - app-network
+    
+  payment-service:
+    image: le0ruslan/do7-payment-service:latest
+    environment:
+      - POSTGRES_HOST=database
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=payments_db
+    depends_on:
+      - database
+    networks:
+      - app-network
+
+  loyalty-service:
+    image: le0ruslan/do7-loyalty-service:latest
+    environment:
+      - POSTGRES_HOST=database
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=balances_db
+    depends_on:
+      - database
+    networks:
+      - app-network
+
+  report-service:
+    image: le0ruslan/do7-report-service:latest
+    environment:
+      - POSTGRES_HOST=database
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=statistics_db
+      - RABBIT_MQ_HOST=rabbitmq
+      - RABBIT_MQ_PORT=5672
+      - RABBIT_MQ_USER=guest
+      - RABBIT_MQ_PASSWORD=guest
+      - RABBIT_MQ_QUEUE_NAME=messagequeue
+      - RABBIT_MQ_EXCHANGE=messagequeue-exchange
+    depends_on:
+      - database
+      - rabbitmq
+    networks:
+      - app-network
+
+  booking-service:
+    image: le0ruslan/do7-booking-service:latest
+    environment:
+      - POSTGRES_HOST=database
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=reservations_db
+      - RABBIT_MQ_HOST=rabbitmq
+      - RABBIT_MQ_PORT=5672
+      - RABBIT_MQ_USER=guest
+      - RABBIT_MQ_PASSWORD=guest
+      - RABBIT_MQ_QUEUE_NAME=messagequeue
+      - RABBIT_MQ_EXCHANGE=messagequeue-exchange
+      - HOTEL_SERVICE_HOST=hotel-service
+      - HOTEL_SERVICE_PORT=8082
+      - PAYMENT_SERVICE_HOST=payment-service
+      - PAYMENT_SERVICE_PORT=8084
+      - LOYALTY_SERVICE_HOST=loyalty-service
+      - LOYALTY_SERVICE_PORT=8085
+    depends_on:
+      - database
+      - rabbitmq
+      - hotel-service
+      - payment-service
+      - loyalty-service
+
+    networks:
+      - app-network
+
+
+  gateway-service:
+    image: le0ruslan/do7-gateway-service:latest
+    environment:
+      - SESSION_SERVICE_HOST=session-service
+      - SESSION_SERVICE_PORT=8081
+      - HOTEL_SERVICE_HOST=hotel-service
+      - HOTEL_SERVICE_PORT=8082
+      - BOOKING_SERVICE_HOST=booking-service
+      - BOOKING_SERVICE_PORT=8083
+      - PAYMENT_SERVICE_HOST=payment-service
+      - PAYMENT_SERVICE_PORT=8084
+      - LOYALTY_SERVICE_HOST=loyalty-service
+      - LOYALTY_SERVICE_PORT=8085
+      - REPORT_SERVICE_HOST=report-service
+      - REPORT_SERVICE_PORT=8086
+    depends_on:
+      - session-service
+      - hotel-service
+      - booking-service
+      - payment-service
+      - loyalty-service
+      - report-service
+    networks:
+      - app-network
+
+  nginx:
+    image: nginxinc/nginx-unprivileged:1.27.3-alpine3.20
+    depends_on:
+      - session-service
+      - gateway-service
+    ports:
+      - "8081:80"
+      - "8087:80"
+    volumes:
+      - ./nginx.conf.template:/etc/nginx/templates/default.conf.template
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: overlay
+    attachable: true
+
+volumes:
+  db_data:
+  rabbitmq_data:
